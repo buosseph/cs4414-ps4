@@ -71,9 +71,11 @@ pub unsafe fn init(width: u32, height: u32)
 	ws(0x10120018, 0x82B);
 
     }
-    set_bg(0x222C38);
-    set_fg(0xFAFCFF);
-    set_cursor_color(0xFAFCFF);
+
+    /* Change color here. If color commands are added, need to implement conversion from proper hex to what is accepted */
+    set_bg(0xFF8000);
+    set_fg(0x0028FFFF);
+    set_cursor_color(0x0028FFFF);
     fill_bg();	
     draw_cursor();
 }

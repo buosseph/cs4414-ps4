@@ -171,10 +171,13 @@ impl BuddyAlloc {
         let mut left = 0;
         let mut index = 0;
 
+        // Problem 8: fix bug to reallocate two adjacent blocks correctly (when they're both free)
+        // Allocator needs to remove the children in the tree and point to the parent (combine the two blocks into one)
+        // Looks like this tree is being stored in an array/vector
         loop {
             match self.tree.get(index) {
-                UNUSED => return,
-                USED => self.tree.set(index, UNUSED),
+                UNUSED => return,                       // block is free, don't do anything
+                USED => self.tree.set(index, UNUSED),   // block is being used, free it
                 _ => {
                     length /= 2;
                     if offset < left + length {
