@@ -66,7 +66,7 @@ pub unsafe fn parsekey(x: char) {
     match x {
         13  =>  {
             // Activate/parse commands here
-            //parse();
+            parse();
             //echo();
             prompt(false);
         }
@@ -103,29 +103,28 @@ pub static mut buffer: cstr = cstr {
 
 // Problem 4: echo input on second line
 unsafe fn echo() {
-    // Iterate through buffer and print
     putstr(&"\n");
     drawstr(&"\n");
     let mut i: uint = 0;
     while i < buffer.len(){
         let current_char: char = buffer.get_char(i);
 
-        // Miss first char on first echo, and occassionally gets wrong char
-        // This is more likely an issue with the string implementation itself
+        // Occassionally gets wrong char, probably something to do with the cstr implementation
         putchar(current_char);
-
-        drawchar(current_char);       // Hangs here
+        drawchar(current_char);       // Hangs without the first sgash> prompt
         i += 1;
     }
     buffer.reset();
-    putstr(&"\n");
-    drawstr(&"\n");
 }
 
 unsafe fn prompt(startup: bool) {
     putstr(&"\nsgash > ");
     if !startup {
         drawstr(&"\nsgash > ");
+    } else {
+        // Technically it's there, but it's not visible
+        // Unlikely color issue, maybe something with CRUSOR?
+        drawstr(&"\nstart >");
     }
     buffer.reset();
 }
