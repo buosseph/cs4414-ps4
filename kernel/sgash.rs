@@ -66,6 +66,7 @@ pub unsafe fn parsekey(x: char) {
     let x = x as u8;
     match x {
         13  =>  {
+            //echo();
             parse();
             prompt(false);
         }
@@ -97,9 +98,9 @@ pub unsafe fn init() {
 
 /****************** Added Code ***************/
 pub static mut buffer: cstr = cstr {
-    pointer: 0 as *mut u8,
-    index_pointer: 0,
-    max: 0
+    addr_pointer: 0 as *mut u8,
+    end_pointer: 0,
+    max_size: 0
 };
 
 // Problem 1: Prompt on each line
@@ -133,6 +134,29 @@ unsafe fn echo() {
 
 
 // Problem 5: Recognize shell commands
+/*unsafe fn parse() {
+    if buffer.streq(&"ls") {
+        putstr(&"\nListing folder children...");
+        drawstr(&"\nListing folder children...");
+        buffer.reset();
+    }
+    else {
+        putstr(&"\nparsing command...");
+        let cmd = buffer.frontslice(' ');       // Problem is here...
+        putstr(&"\nsliced!");
+        if cmd.streq(&"echo"){
+            putstr(&"\ncan you hear me?");
+            echo();
+        }
+        else {
+            putstr(&"\nit's all good.jpg");
+            buffer.reset();
+        }
+
+    }
+}*/
+
+
 unsafe fn parse() {
     if (buffer.streq(&"ls")) { 
         putstr( &"\na\tb") ;
@@ -141,18 +165,18 @@ unsafe fn parse() {
     }
     else {
         putstr(&"\nparsing command...");
-        match buffer.getarg(' ', 0){
-            // Hangs here
+        match buffer.getarg(' ', 0){        // Hangs here
             Some(cmd)   => {
-                putstr(&"\nmatching...");
-                drawstr(&"\nmatching...");
+                if cmd.streq(&"echo"){
+                    putstr(&"echo");
+                    drawstr(&"echo");
+                }
             },
             None        => {
                 putstr(&"\nDidn't recognize command...");
                 drawstr(&"\nDidn't recognize command...");
             }
         }
-
         buffer.reset();
     }
 
@@ -195,9 +219,9 @@ unsafe fn parse() {
 
 /* CString */
 struct cstr {
-    pointer: *mut u8,       // Starting address
-    index_pointer: uint,    // Address of i
-    max: uint               // Maximum end address           
+    addr_pointer: *mut u8,       // Starting address
+    end_pointer: uint,    // Address of i
+    max_size: uint               // Maximum end address           
 }
 
 impl cstr {
@@ -205,12 +229,14 @@ impl cstr {
         // Sometimes this doesn't allocate enough memory and gets stuck...
         let (addr_offset,mem_size) = heap.alloc(size);
         let this = cstr {
-            pointer:            addr_offset,
-            index_pointer:      0,
-            max:                mem_size
+            addr_pointer:       addr_offset,
+            end_pointer:        0,
+            max_size:                mem_size
         };
+
         // String requires null terminator
-        *(((this.pointer as uint)+this.index_pointer) as *mut char) = '\0';
+        // This is also the standard way to access character bytes
+        *(((this.addr_pointer as uint)+this.end_pointer) as *mut char) = '\0';
         this
     }
 
@@ -224,33 +250,33 @@ impl cstr {
     }
 
 #[allow(dead_code)]
-    fn len(&self) -> uint { self.index_pointer }
+    fn len(&self) -> uint { self.end_pointer }
 
     // HELP THIS DOESN'T WORK THERE IS NO GARBAGE COLLECTION!!!
     // -- TODO: exchange_malloc, exchange_free
 #[allow(dead_code)]
-    unsafe fn destroy(&self) { heap.free(self.pointer); }
+    unsafe fn destroy(&self) { heap.free(self.addr_pointer); }
 
-    unsafe fn add_char(&mut self, x: u8) -> bool{
-        if (self.index_pointer == self.max) { return false; }
-        *(((self.pointer as uint)+self.index_pointer) as *mut u8) = x;
-        self.index_pointer += 1;
-        *(((self.pointer as uint)+self.index_pointer) as *mut char) = '\0';
+    unsafe fn add_char(&mut self, character: u8) -> bool{
+        if (self.end_pointer == self.max_size) { return false; }
+        *(((self.addr_pointer as uint)+self.end_pointer) as *mut u8) = character;
+        self.end_pointer += 1;
+        *(((self.addr_pointer as uint)+self.end_pointer) as *mut char) = '\0';
         true
     }
 
-    // Used for echo function
+    // Used for echo function (Works fine)
     unsafe fn get_char(&mut self, index: uint) -> char {
-        if self.index_pointer == 0 {
-            return (0 as u8) as char;
+        if self.end_pointer == 0 {
+            return *(((self.addr_pointer as uint)) as *mut char);   // Should return '\0'
         }
-        return *(((self.pointer as uint)+index) as *mut char);
+        return *(((self.addr_pointer as uint)+index) as *mut char);
     }
 
     unsafe fn delete_char(&mut self) -> bool {
-        if (self.index_pointer == 0) { return false; }
-        self.index_pointer -= 1;
-        *(((self.pointer as uint)+self.index_pointer) as *mut char) = '\0';
+        if (self.end_pointer == 0) { return false; }
+        self.end_pointer -= 1;
+        *(((self.addr_pointer as uint)+self.end_pointer) as *mut char) = '\0';
         true
     }
 
@@ -261,8 +287,8 @@ impl cstr {
             self.delete_char();
             i -= 1;
         }
-        self.index_pointer = 0; 
-        *(self.pointer as *mut char) = '\0';
+        self.end_pointer = 0; 
+        *(self.addr_pointer as *mut char) = '\0';
     }
 
 #[allow(dead_code)]
@@ -270,8 +296,8 @@ impl cstr {
         if (self.len() != other.len()) { return false; }
         else {
             let mut x = 0;
-            let mut selfp: uint = self.pointer as uint;
-            let mut otherp: uint = other.pointer as uint;
+            let mut selfp: uint = self.addr_pointer as uint;
+            let mut otherp: uint = other.addr_pointer as uint;
             while x < self.len() {
                 if (*(selfp as *char) != *(otherp as *char)) { return false; }
                 selfp += 1;
@@ -283,7 +309,7 @@ impl cstr {
     }
 
     unsafe fn streq(&self, other: &str) -> bool {
-        let mut selfp: uint = self.pointer as uint;
+        let mut selfp: uint = self.addr_pointer as uint;
         for c in slice::iter(as_bytes(other)) {
             if( *c != *(selfp as *u8) ) { return false; }
             selfp += 1;
@@ -292,27 +318,20 @@ impl cstr {
     }
 
     unsafe fn getarg(&self, delim: char, mut k: uint) -> Option<cstr> {
-        let mut ind: uint = 0;
-        let mut found = k == 0;
-        let mut selfp: uint = self.pointer as uint;
-        let mut s = cstr::new(256);
+        let mut index: uint = 0;
+        let mut pointer: uint = self.addr_pointer as uint;
+        let mut string = cstr::new(256);
         loop {
-            if (*(selfp as *char) == '\0') { 
-                // End of string
-                if (found) { return Some(s); }
-                else { return None; }
+            if (*(pointer as *char) == '\0') { 
+                return None;
             };
-            if (*(selfp as *u8) == delim as u8) { 
-                if (found) { return Some(s); }
-                k -= 1;
+            if (*(pointer as *char) == delim) { 
+                return Some(string);
             };
-            if (found) {
-                s.add_char(*(selfp as *u8));
-            };
-            found = k == 0;
-            selfp += 1;
-            ind += 1;
-            if (ind == self.max) { 
+            string.add_char(*(pointer as *u8));
+            pointer += 1;
+            index += 1;
+            if (index == self.max_size) { 
                 putstr(&"\nSomething broke!");
                 return None; 
             }
@@ -321,7 +340,7 @@ impl cstr {
 
 #[allow(dead_code)]
     unsafe fn split(&self, delim: char) -> (cstr, cstr) {
-        let mut selfp: uint = self.pointer as uint;
+        let mut selfp: uint = self.addr_pointer as uint;
         let mut beg = cstr::new(256);
         let mut end = cstr::new(256);
         let mut found = false;
@@ -342,36 +361,82 @@ impl cstr {
         }
     }
 
-    unsafe fn get_cmd(&self, delim: char, mut k: uint) -> cstr {
-        let mut ind: uint = 0;
-        let mut found = k == 0;
-        let mut selfp: uint = self.pointer as uint;
-        let mut s = cstr::new(256);
+    
+    unsafe fn frontslice(&self, delimiter: char) -> cstr {
+        let mut index: uint = self.addr_pointer as uint;
+        let length: uint = self.max_size as uint;
+        let mut return_str = cstr::new(256);
+        let mut i: uint = 0;
         loop {
-            if (*(selfp as *char) == '\0') { 
-                // End of string
-                if (found) { return s; }
-                else { s.reset(); return s;  }
+            if (*(index as *char) == '\0') {
+                return return_str;
+            }
+            else if (*(index as *u8) == delimiter as u8) {
+                return return_str;
+            }
+            else {
+                return_str.add_char(*(index as *u8));
+                index += 1;
+            }
+        }
+    }
+
+    unsafe fn get_cmd(&self, delim: char) -> cstr {
+        let mut index: uint = 0;
+        let mut pointer: uint = self.addr_pointer as uint;
+        let mut string = cstr::new(256);
+        loop {
+            if (*(pointer as *char) == '\0') { 
+                return string;
             };
-            if (*(selfp as *u8) == delim as u8) { 
-                if (found) { return s; }
-                k -= 1;
+            if (*(pointer as *char) == delim) { 
+                return string;
             };
-            if (found) {
-                s.add_char(*(selfp as *u8));
-            };
-            found = k == 0;
-            selfp += 1;
-            ind += 1;
-            if (ind == self.max) { 
+            string.add_char(*(pointer as *u8));
+            pointer += 1;
+            index += 1;
+            if (index == self.max_size) { 
                 putstr(&"\nSomething broke!");
-                s.reset();
-                return s; 
+                return string; 
             }
         }
     }
 
 }
+
+
+/********* File System ****************/
+struct inode {
+    uid:    uint,
+    address: *mut u8
+    left_child: *mut u8,
+    right_child: *mut u8,
+    filename: cstr,
+    data: cstr
+}
+impl inode {
+    pub unsafe fn new(id: uint, filename: cstr) -> inode {
+        let (addr_offset,mem_size) = heap.alloc(size);
+        uid: id,
+        address: addr_offset,
+        left_child: 0 as *mut u8,
+        right_child: 0 as *mut u8,
+        filename: filename,
+        data: cstr::new(256);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
