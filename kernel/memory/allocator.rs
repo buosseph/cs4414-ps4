@@ -172,12 +172,42 @@ impl BuddyAlloc {
         let mut index = 0;
 
         // Problem 8: fix bug to reallocate two adjacent blocks correctly (when they're both free)
-        // Allocator needs to remove the children in the tree and point to the parent (combine the two blocks into one)
-        // Looks like this tree is being stored in an array/vector
         loop {
             match self.tree.get(index) {
                 UNUSED => return,                       // block is free, don't do anything
-                USED => self.tree.set(index, UNUSED),   // block is being used, free it
+                USED => {
+                    /******** Added code ********/
+                    // Left child at 2*index + 1
+                    // Right child at 2*index + 2
+                    // Parent at floor((index-1)/2)
+
+                    loop{
+                        if index == 0 {
+                            self.tree.set(0,UNUSED);
+                            return;
+                        }
+                        // Find sibling and check if also UNUSED
+                        let buddy = index-1 + (index & 1)*2;
+                        match self.tree.get(buddy){
+                            UNUSED => {},
+                            _ => {
+                                self.tree.set(index,UNUSED);
+                                loop{
+                                    let parent = (index+1)/2 -1;
+                                    match self.tree.get(parent){
+                                        FULL if index > 0 => {
+                                            self.tree.set(parent,SPLIT);
+                                        },
+                                        _ => return
+                                    }
+                                    index = parent;
+                                }
+                            }
+                        }
+                        index = (index+1)/ 2-1;
+                    }
+
+                },
                 _ => {
                     length /= 2;
                     if offset < left + length {
