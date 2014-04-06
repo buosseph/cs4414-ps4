@@ -72,7 +72,8 @@ pub unsafe fn init(width: u32, height: u32)
 
     }
 
-    /* Change color here. If color commands are added, need to implement conversion from proper hex to what is accepted */
+    // Problem 2: Change color scheme
+    // If color commands are added, need to implement conversion from proper hex to what is accepted
     set_bg(0xFF8000);
     set_fg(0x0028FFFF);
     set_cursor_color(0x0028FFFF);

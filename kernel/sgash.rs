@@ -38,8 +38,9 @@ unsafe fn drawchar(x: char)
 {
     io::restore();
     if x == '\n' {
-io::CURSOR_Y += io::CURSOR_HEIGHT;
-io::CURSOR_X = 0u32;
+    io::CURSOR_Y += io::CURSOR_HEIGHT;
+        io::CURSOR_X = 0u32;
+        return;
     } else {
 io::draw_char(x);   
 io::CURSOR_X += io::CURSOR_WIDTH;
@@ -65,16 +66,16 @@ pub unsafe fn parsekey(x: char) {
     let x = x as u8;
     match x {
         13  =>  {
-            // Activate/parse commands here
             parse();
-            //echo();
             prompt(false);
         }
         127 =>  {
-            putchar('');
-            putchar(' ');
-            putchar('');
-            backspace();
+            if(buffer.delete_char()) {
+                putchar('');
+                putchar(' ');
+                putchar('');
+                backspace();
+            }
         }
         _   =>  {
             if (buffer.add_char(x)) {
@@ -101,6 +102,19 @@ pub static mut buffer: cstr = cstr {
     max: 0
 };
 
+// Problem 1: Prompt on each line
+unsafe fn prompt(startup: bool) {
+    putstr(&"\nsgash > ");
+    if !startup {
+        drawstr(&"\nsgash > ");
+    } else {
+        // Technically it's there, but it's not visible
+        // Unlikely color issue, maybe something with CRUSOR?
+        drawstr(&"\nstart >");
+    }
+    buffer.reset();
+}
+
 // Problem 4: echo input on second line
 unsafe fn echo() {
     putstr(&"\n");
@@ -117,92 +131,66 @@ unsafe fn echo() {
     buffer.reset();
 }
 
-unsafe fn prompt(startup: bool) {
-    putstr(&"\nsgash > ");
-    if !startup {
-        drawstr(&"\nsgash > ");
-    } else {
-        // Technically it's there, but it's not visible
-        // Unlikely color issue, maybe something with CRUSOR?
-        drawstr(&"\nstart >");
-    }
-    buffer.reset();
-}
-
 
 // Problem 5: Recognize shell commands
-// Issue here, only ls recognized
 unsafe fn parse() {
     if (buffer.streq(&"ls")) { 
         putstr( &"\na\tb") ;
         drawstr( &"\na    b") ;
-    };
-    if buffer.streq(&"cat a") {
-        putstr(&"\na is here");
-        putstr(&"\na is here");
+        buffer.reset();
     }
+    else {
+        putstr(&"\nparsing command...");
+        match buffer.getarg(' ', 0){
+            // Hangs here
+            Some(cmd)   => {
+                putstr(&"\nmatching...");
+                drawstr(&"\nmatching...");
+            },
+            None        => {
+                putstr(&"\nDidn't recognize command...");
+                drawstr(&"\nDidn't recognize command...");
+            }
+        }
+
+        buffer.reset();
+    }
+
+    /*
+    if (buffer.streq(&"echo")) { 
+        putstr( &"\necho");
+        drawstr( &"\necho");
+        buffer.reset();
+    };
     // Separates what's in buffer by spliting spaces
     match buffer.getarg(' ', 0) {
-        Some(y)        => {
-        if(y.streq(&"cat")) {
-            match buffer.getarg(' ', 1) {
-            Some(x)        => {
-                if(x.streq(&"a")) { 
-                putstr( &"\nHowdy!"); 
-                drawstr( &"\nHowdy!"); 
+        Some(cmd)        => {
+            if(cmd.streq(&"cat")) {
+                match buffer.getarg(' ', 1) {
+                Some(x)        => {
+                    if(x.streq(&"a")) { 
+                    putstr( &"\nHowdy!"); 
+                    drawstr( &"\nHowdy!"); 
+                    }
+                    if(x.streq(&"b")) {
+                    putstr( &"\nworld!");
+                    drawstr( &"\nworld!");
+                    }
                 }
-                if(x.streq(&"b")) {
-                putstr( &"\nworld!");
-                drawstr( &"\nworld!");
-                }
+                None        => { }
+                };
             }
-            None        => { }
-            };
+            
+            if cmd.streq(&"echo") {
+                putstr(&"\necho");
+                drawstr(&"\necho");
+            }
         }
-        if(y.streq(&"open")) {
-            putstr(&"\nTEST YO");
-            drawstr(&"\nTEST YO");
-        }
-        if(y.streq(&"echo")) {
-            putstr(&"\necho");
-            drawstr(&"\necho");
-        }
-        if(y.streq(&"ls")) {
-            putstr(&"\nhelp");
-            drawstr(&"\nhelp");
-        }
-        if(y.streq(&"cd")) {
-            putstr(&"\ncd");
-            drawstr(&"\ncd");
-        }
-        if(y.streq(&"rm")) {
-            putstr(&"\nrm");
-            drawstr(&"\nrm");
-        }
-        if(y.streq(&"mkdir")) {
-            putstr(&"\nmkdir");
-            drawstr(&"\nmkdir");
-        }
-        if(y.streq(&"pwd")) {
-            putstr(&"\npwd");
-            drawstr(&"\npwd");
-        }
-        if(y.streq(&"wr")) {
-            putstr(&"\nwr");
-            drawstr(&"\nwr");
-        }
-
-        }
-        None        => {
-            putstr(&"Recognize any command");
-            drawstr(&"Recognize any command");
-        }
+        None        => {}
     };
-    buffer.reset();
+    */
+    
 }
-
-
-
 
 
 /* CString */
@@ -267,6 +255,12 @@ impl cstr {
     }
 
     unsafe fn reset(&mut self) {
+        let length = self.len();
+        let mut i = length-1;
+        while i < length {
+            self.delete_char();
+            i -= 1;
+        }
         self.index_pointer = 0; 
         *(self.pointer as *mut char) = '\0';
     }
@@ -348,6 +342,34 @@ impl cstr {
         }
     }
 
+    unsafe fn get_cmd(&self, delim: char, mut k: uint) -> cstr {
+        let mut ind: uint = 0;
+        let mut found = k == 0;
+        let mut selfp: uint = self.pointer as uint;
+        let mut s = cstr::new(256);
+        loop {
+            if (*(selfp as *char) == '\0') { 
+                // End of string
+                if (found) { return s; }
+                else { s.reset(); return s;  }
+            };
+            if (*(selfp as *u8) == delim as u8) { 
+                if (found) { return s; }
+                k -= 1;
+            };
+            if (found) {
+                s.add_char(*(selfp as *u8));
+            };
+            found = k == 0;
+            selfp += 1;
+            ind += 1;
+            if (ind == self.max) { 
+                putstr(&"\nSomething broke!");
+                s.reset();
+                return s; 
+            }
+        }
+    }
 
 }
 
