@@ -11,10 +11,6 @@ use kernel::memory::Allocator;
 // Used to store character into QEMU
 pub fn putchar(key: char) {
     unsafe {
-        /*
-        * We need to include a blank asm call to prevent rustc
-        * from optimizing this part out
-        */
         asm!("");
         io::write_char(key, io::UART0);
     }
@@ -91,6 +87,7 @@ pub unsafe fn parsekey(x: char) {
 
 pub unsafe fn init() {
     buffer = cstr::new(256);
+    //filesystem = file_tree::new();
     screen();
     // First prompt does draw, but out of bounds?
     prompt(true);
@@ -110,7 +107,7 @@ unsafe fn prompt(startup: bool) {
         drawstr(&"\nsgash > ");
     } else {
         // Technically it's there, but it's not visible
-        // Unlikely color issue, maybe something with CRUSOR?
+        // Unlikely color issue, maybe something with CURSOR?
         drawstr(&"\nstart >");
     }
     buffer.reset();
@@ -123,8 +120,6 @@ unsafe fn echo() {
     let mut i: uint = 0;
     while i < buffer.len(){
         let current_char: char = buffer.get_char(i);
-
-        // Occassionally gets wrong char, probably something to do with the cstr implementation
         putchar(current_char);
         drawchar(current_char);       // Hangs without the first sgash> prompt
         i += 1;
@@ -134,36 +129,18 @@ unsafe fn echo() {
 
 
 // Problem 5: Recognize shell commands
-/*unsafe fn parse() {
-    if buffer.streq(&"ls") {
-        putstr(&"\nListing folder children...");
-        drawstr(&"\nListing folder children...");
-        buffer.reset();
-    }
-    else {
-        putstr(&"\nparsing command...");
-        let cmd = buffer.frontslice(' ');       // Problem is here...
-        putstr(&"\nsliced!");
-        if cmd.streq(&"echo"){
-            putstr(&"\ncan you hear me?");
-            echo();
-        }
-        else {
-            putstr(&"\nit's all good.jpg");
-            buffer.reset();
-        }
-
-    }
-}*/
-
-
 unsafe fn parse() {
     if (buffer.streq(&"ls")) { 
-        putstr( &"\na\tb") ;
-        drawstr( &"\na    b") ;
+        //filesystem.current_dir.filename.print();
+        buffer.reset();
+    }
+    // Temporary fix
+    else if (buffer.streq(&"echo test")) { 
+        echo();
         buffer.reset();
     }
     else {
+        /*
         putstr(&"\nparsing command...");
         match buffer.getarg(' ', 0){        // Hangs here
             Some(cmd)   => {
@@ -177,42 +154,9 @@ unsafe fn parse() {
                 drawstr(&"\nDidn't recognize command...");
             }
         }
+        */
         buffer.reset();
     }
-
-    /*
-    if (buffer.streq(&"echo")) { 
-        putstr( &"\necho");
-        drawstr( &"\necho");
-        buffer.reset();
-    };
-    // Separates what's in buffer by spliting spaces
-    match buffer.getarg(' ', 0) {
-        Some(cmd)        => {
-            if(cmd.streq(&"cat")) {
-                match buffer.getarg(' ', 1) {
-                Some(x)        => {
-                    if(x.streq(&"a")) { 
-                    putstr( &"\nHowdy!"); 
-                    drawstr( &"\nHowdy!"); 
-                    }
-                    if(x.streq(&"b")) {
-                    putstr( &"\nworld!");
-                    drawstr( &"\nworld!");
-                    }
-                }
-                None        => { }
-                };
-            }
-            
-            if cmd.streq(&"echo") {
-                putstr(&"\necho");
-                drawstr(&"\necho");
-            }
-        }
-        None        => {}
-    };
-    */
     
 }
 
@@ -220,7 +164,7 @@ unsafe fn parse() {
 /* CString */
 struct cstr {
     addr_pointer: *mut u8,       // Starting address
-    end_pointer: uint,    // Address of i
+    end_pointer: uint,           // Address of i
     max_size: uint               // Maximum end address           
 }
 
@@ -231,7 +175,7 @@ impl cstr {
         let this = cstr {
             addr_pointer:       addr_offset,
             end_pointer:        0,
-            max_size:                mem_size
+            max_size:           mem_size
         };
 
         // String requires null terminator
@@ -239,7 +183,6 @@ impl cstr {
         *(((this.addr_pointer as uint)+this.end_pointer) as *mut char) = '\0';
         this
     }
-
 #[allow(dead_code)]
     unsafe fn from_str(s: &str) -> cstr {
         let mut this = cstr::new(256);
@@ -248,12 +191,8 @@ impl cstr {
         };
         this
     }
-
 #[allow(dead_code)]
     fn len(&self) -> uint { self.end_pointer }
-
-    // HELP THIS DOESN'T WORK THERE IS NO GARBAGE COLLECTION!!!
-    // -- TODO: exchange_malloc, exchange_free
 #[allow(dead_code)]
     unsafe fn destroy(&self) { heap.free(self.addr_pointer); }
 
@@ -405,42 +344,65 @@ impl cstr {
 }
 
 
-/********* File System ****************/
+/**************** File System ****************/
+/*
 struct inode {
     uid:    uint,
-    address: *mut u8
+    directory: bool,
+    address: *mut u8,
     left_child: *mut u8,
     right_child: *mut u8,
     filename: cstr,
     data: cstr
 }
 impl inode {
-    pub unsafe fn new(id: uint, filename: cstr) -> inode {
-        let (addr_offset,mem_size) = heap.alloc(size);
-        uid: id,
-        address: addr_offset,
-        left_child: 0 as *mut u8,
-        right_child: 0 as *mut u8,
-        filename: filename,
-        data: cstr::new(256);
+    pub unsafe fn newfile(id: uint, filename: cstr) -> inode {
+        let (addr_offset,mem_size) = heap.alloc(256);
+        let this = inode {
+            uid: id,
+            directory: false,
+            address: addr_offset,
+            left_child: 0 as *mut u8,
+            right_child: 0 as *mut u8,
+            filename: filename,
+            data: cstr::new(256)
+        };
+        this
+    }
+    pub unsafe fn newdir(id: uint, dirname: cstr) -> inode {
+        let (addr_offset,mem_size) = heap.alloc(256);
+        let this = inode {
+            uid: id,
+            directory: true,
+            address: addr_offset,
+            left_child: 0 as *mut u8,
+            right_child: 0 as *mut u8,
+            filename: dirname,
+            data: cstr::new(256)
+        };
+        this
     }
 }
 
+struct file_tree {
+    root: inode,
+    current_dir: inode,
+    id_count: uint,
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+}
+impl file_tree {
+    pub unsafe fn new () -> file_tree {
+        let mut dir_name = cstr::from_str(&"root");
+        let mut root_dir = inode::newdir(0,dir_name);
+        let this = file_tree {
+            root: root_dir,
+            current_dir: root_dir,
+            id_count: 0,
+        };
+        this
+    }
+}
+*/
 
 // No real purpose beside printing on bash
 fn screen() {
